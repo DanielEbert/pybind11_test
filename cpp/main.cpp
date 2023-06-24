@@ -41,6 +41,9 @@ struct Echo
 
 struct Meas
 {
+    Meas() = default;
+    Meas(TFixedVector<Echo, numEchos>& f_de, TFixedVector<Echo, numEchos>& f_ce, uint32_t f_sendingSensor)
+        : de{f_de}, ce{f_ce}, sendingSensor{f_sendingSensor} {};
     TFixedVector<Echo, numEchos> de;
     TFixedVector<Echo, numEchos> ce;
     uint32_t sendingSensor;
@@ -48,6 +51,9 @@ struct Meas
 
 struct EFIOut
 {
+    EFIOut() = default;
+    EFIOut(uint32_t f_sendingMask, TFixedVector<Meas, numSensors>& f_measurements)
+        : sendingMask{f_sendingMask}, measurements{f_measurements} {};
     uint32_t sendingMask;
     TFixedVector<Meas, numSensors> measurements;
 };
@@ -96,12 +102,14 @@ PYBIND11_MODULE(cppmain, m)
 
     py::class_<Meas>(m, "Meas")
         .def(py::init<>())
+        .def(py::init<TFixedVector<Echo, numEchos>&, TFixedVector<Echo, numEchos>&, uint32_t>())
         .def_readwrite("de", &Meas::de)
         .def_readwrite("ce", &Meas::ce)
         .def_readwrite("sendingSensor", &Meas::sendingSensor);
 
     py::class_<EFIOut>(m, "EFIOut")
         .def(py::init<>())
+        .def(py::init<uint32_t, TFixedVector<Meas, numSensors>&>())
         .def_readwrite("sendingMask", &EFIOut::sendingMask)
         .def_readwrite("measurements", &EFIOut::measurements);
 
