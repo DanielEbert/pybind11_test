@@ -2,28 +2,31 @@
 
 #include <iostream>
 #include <memory>
+#include <stdexcept>
 
 namespace py = pybind11;
 
 constexpr uint32_t numEchos{10};
+constexpr uint32_t numSensors{5};
 
 template <typename T, uint32_t N> class TFixedVector
 {
   public:
-    bool push_back(T t)
+    void push_back(T t)
     {
         if (current >= capacity)
         {
-            return false;
+            throw std::out_of_range("No free space in TFixedVector.");
         }
         members[current] = t;
         current++;
-        return true;
     }
-    uint32_t size()
+
+    uint32_t size() const
     {
         return current;
     }
+
     uint32_t current{0};
     uint32_t capacity{N};
     T members[N];
@@ -31,55 +34,76 @@ template <typename T, uint32_t N> class TFixedVector
 
 struct Echo
 {
-    int echoDist{0};
+    Echo() = default;
+    Echo(int f_dst) : dst{f_dst} {};
+    int dst{0};
 };
 
-struct Trace
+struct Meas
 {
-    TFixedVector<Echo, 10> echos;
-    uint32_t numActiveSensors;
+    TFixedVector<Echo, numEchos> de;
+    TFixedVector<Echo, numEchos> ce;
+    uint32_t sendingSensor;
 };
 
-void printInts(const Trace& trace)
+struct EFIOut
 {
-    for (int i = 0; i < trace.echos.current; i++)
+    uint32_t sendingMask;
+    TFixedVector<Meas, numSensors> measurements;
+};
+
+void printInts(const Meas& meas)
+{
+    for (int i = 0; i < meas.de.size(); i++)
     {
-        std::cout << trace.echos.members[i].echoDist << std::endl;
+        std::cout << meas.de.members[i].dst << std::endl;
     }
+}
+
+template <typename T, uint32_t N> void bindTFixedVector(py::module& m, const std::string name)
+{
+    py::class_<TFixedVector<T, N>>(m, name.c_str())
+        .def(py::init<>())
+        .def(py::init([](const py::iterable& it) {
+            auto v = std::unique_ptr<TFixedVector<T, N>>(new TFixedVector<T, N>());
+            for (py::handle h : it)
+            {
+                v->push_back(h.cast<T>());
+            }
+            return v.release();
+        }))
+        .def("append", [](TFixedVector<T, N>& v, const T& e) { v.push_back(e); })
+        .def(
+            "__getitem__",
+            [](const TFixedVector<T, N>& v, size_t i) -> const T& {
+                if (i >= v.current)
+                {
+                    throw std::out_of_range("Index out of range.");
+                }
+                return v.members[i];
+            },
+            py::return_value_policy::reference_internal)
+        .def("__len__", &TFixedVector<T, N>::size)
+        .def_readwrite("capacity", &TFixedVector<T, N>::capacity);
 }
 
 PYBIND11_MODULE(cppmain, m)
 {
-    py::class_<TFixedVector<Echo, numEchos>>(m, "EchoTFixedVector")
-        .def(py::init<>())
-        .def(py::init([](const py::iterable& it) {
-            auto v = std::unique_ptr<TFixedVector<Echo, numEchos>>(new TFixedVector<Echo, numEchos>());
-            for (py::handle h : it)
-            {
-                v->push_back(h.cast<Echo>());
-            }
-            return v.release();
-        }))
-        .def("append", [](TFixedVector<Echo, numEchos>& v, const Echo& e) { v.push_back(e); })
-        .def(
-            "__getitem__",
-            [](const TFixedVector<Echo, numEchos>& v, size_t i) -> const Echo& {
-                return v.members[static_cast<size_t>(i)];
-            },
-            py::return_value_policy::reference_internal)
-        .def("__len__", &TFixedVector<Echo, numEchos>::size)
-        .def_readwrite("capacity", &TFixedVector<Echo, numEchos>::capacity);
+    bindTFixedVector<Echo, numEchos>(m, "EchoTFixedVector");
+    bindTFixedVector<Meas, numSensors>(m, "MeasTFixedVector");
 
-    py::class_<Echo>(m, "Echo")
-        .def(py::init<>())
-        .def(py::init([](uint32_t f_echoDist) {
-            Echo e;
-            e.echoDist = f_echoDist;
-            return e;
-        }))
-        .def_readwrite("echoDist", &Echo::echoDist);
+    py::class_<Echo>(m, "Echo").def(py::init<>()).def(py::init<int>()).def_readwrite("dst", &Echo::dst);
 
-    py::class_<Trace>(m, "Trace").def(py::init<>()).def_readwrite("echos", &Trace::echos);
+    py::class_<Meas>(m, "Meas")
+        .def(py::init<>())
+        .def_readwrite("de", &Meas::de)
+        .def_readwrite("ce", &Meas::ce)
+        .def_readwrite("sendingSensor", &Meas::sendingSensor);
+
+    py::class_<EFIOut>(m, "EFIOut")
+        .def(py::init<>())
+        .def_readwrite("sendingMask", &EFIOut::sendingMask)
+        .def_readwrite("measurements", &EFIOut::measurements);
 
     m.def("printInts", &printInts, "printInts");
 }
